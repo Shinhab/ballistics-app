@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, Crosshair, Target, FileText, Download, User, LogOut, Plus, Trash2, 
   Settings, Award, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, BarChart2,
-  Compass, Zap, Database
+  Compass, Zap, Database, Move, ZoomIn, ZoomOut
 } from 'lucide-react';
 
 export default function App() {
@@ -10,7 +10,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [authMode, setAuthMode] = useState('login');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState('Shooter');
 
@@ -39,9 +39,8 @@ export default function App() {
   });
 
   // --- NAVIGATION & WIZARD STATE ---
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'setup', 'firing', 'report', 'armory'
+  const [currentView, setCurrentView] = useState('dashboard');
   
-  // Setup Wizard State
   const [sessionMeta, setSessionMeta] = useState({
     date: new Date().toISOString().split('T')[0],
     time: new Date().toTimeString().substring(0, 5),
@@ -68,13 +67,16 @@ export default function App() {
     declaredRounds: 5
   });
 
-  // Firing & Target Analysis State
+  // --- INTERACTIVE FIRING & RETICLE PLACEMENT STATE ---
   const [currentRoundNumber, setCurrentRoundNumber] = useState(1);
-  const [targetImages, setTargetImages] = useState({});
-  const [shotHits, setShotHits] = useState({});
+  const [roundImages, setRoundImages] = useState({}); // roundNum -> image URL
+  const [shotHits, setShotHits] = useState({}); // roundNum -> [{ id, x, y }]
+  const [selectedShotId, setSelectedShotId] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const canvasRef = useRef(null);
 
-  // Save states to local storage automatically
+  // Save states automatically
   useEffect(() => {
     localStorage.setItem('apex_armory', JSON.stringify(armory));
   }, [armory]);
@@ -101,7 +103,7 @@ export default function App() {
     setCurrentView('dashboard');
   };
 
-  // --- ARMORY & AMMO ADDERS ---
+  // --- ARMORY & AMMO MANAGEMENT ---
   const [newArmoryItem, setNewArmoryItem] = useState({ name: '', type: 'Firearm', caliber: '', serial: '', muzzleVelocity: '' });
   const [newAmmoItem, setNewAmmoItem] = useState({ name: '', caliber: '5.56x45mm', roundType: 'FMJ', bulletWeight: '', powderCharge: '' });
 
@@ -119,34 +121,77 @@ export default function App() {
     setNewAmmoItem({ name: '', caliber: '5.56x45mm', roundType: 'FMJ', bulletWeight: '', powderCharge: '' });
   };
 
-  // --- SIMULATED COMPUTER VISION SHOT DETECTION ---
-  const simulateShotDetection = (roundNum) => {
-    const hits = [];
-    const count = parseInt(sessionMeta.declaredRounds) || 5;
-    const centerX = 225;
-    const centerY = 200;
-    const spread = sessionMeta.isArtillery ? 60 : 25;
+  // --- TARGET IMAGE & AUTO / MANUAL RETICLE PLACEMENT ---
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setRoundImages(prev => ({ ...prev, [currentRoundNumber]: url }));
 
-    for (let i = 0; i < count; i++) {
-      const offsetX = (Math.random() - 0.5) * spread * (sessionMeta.isArtillery ? 1.8 : 1);
-      const offsetY = (Math.random() - 0.5) * spread * (sessionMeta.isArtillery ? 1.8 : 1);
-      hits.push({ id: i + 1, x: Math.round(centerX + offsetX), y: Math.round(centerY + offsetY) });
+      // Auto-detect simulated hits upon image load
+      const declared = parseInt(sessionMeta.declaredRounds) || 5;
+      const autoHits = [];
+      const centerX = 300;
+      const centerY = 200;
+      const spread = sessionMeta.isArtillery ? 70 : 30;
+
+      for (let i = 0; i < declared; i++) {
+        autoHits.push({
+          id: i + 1,
+          x: Math.round(centerX + (Math.random() - 0.5) * spread),
+          y: Math.round(centerY + (Math.random() - 0.5) * spread)
+        });
+      }
+      setShotHits(prev => ({ ...prev, [currentRoundNumber]: autoHits }));
+    }
+  };
+
+  const handleCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round((e.clientX - rect.left) / zoomLevel);
+    const y = Math.round((e.clientY - rect.top) / zoomLevel);
+
+    const currentHits = shotHits[currentRoundNumber] || [];
+    const newId = currentHits.length + 1;
+    if (newId > (parseInt(sessionMeta.declaredRounds) || 5)) {
+      alert(`Maximum declared rounds (${sessionMeta.declaredRounds}) reached. Click an existing marker to drag/adjust it.`);
+      return;
     }
 
-    setShotHits(prev => ({ ...prev, [roundNum]: hits }));
+    setShotHits(prev => ({
+      ...prev,
+      [currentRoundNumber]: [...currentHits, { id: newId, x, y }]
+    }));
   };
 
-  // --- BALLISTICS CALCULATION ENGINE ---
+  const handleDragShot = (e, shotId) => {
+    e.stopPropagation();
+    setSelectedShotId(shotId);
+  };
+
+  const handleCanvasMouseMove = (e) => {
+    if (selectedShotId === null) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = Math.round((e.clientX - rect.left) / zoomLevel);
+    const y = Math.round((e.clientY - rect.top) / zoomLevel);
+
+    setShotHits(prev => ({
+      ...prev,
+      [currentRoundNumber]: (prev[currentRoundNumber] || []).map(shot => 
+        shot.id === selectedShotId ? { ...shot, x, y } : shot
+      )
+    }));
+  };
+
+  const handleCanvasMouseUp = () => {
+    setSelectedShotId(null);
+  };
+
+  // --- BALLISTICS CALCULATION & REPORT ---
   const calculateBallistics = () => {
-    allRoundsCompleted();
-  };
-
-  const allRoundsCompleted = () => {
     let totalHits = 0;
-    let allShotsList = [];
     Object.values(shotHits).forEach(round => {
       totalHits += round.length;
-      allShotsList.push(...round);
     });
 
     const es = sessionMeta.isArtillery ? (Math.random() * 4.5 + 2.1).toFixed(2) + ' Mil' : (Math.random() * 1.5 + 0.4).toFixed(2) + ' MOA';
@@ -170,7 +215,6 @@ export default function App() {
     setCurrentView('report');
   };
 
-  // --- INSTANT ON-SPOT REPORT DOWNLOAD ---
   const downloadReport = (session) => {
     const reportContent = `
 ========================================
@@ -230,22 +274,14 @@ Generated securely by APEX Ballistics Telemetry Engine.
             <div>
               <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
               <input 
-                type="email" 
-                required 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                placeholder="operator@apex.mil"
+                type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="operator@apex.mil"
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
               />
             </div>
             <div>
               <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Password</label>
               <input 
-                type="password" 
-                required 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                placeholder="••••••••"
+                type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
               />
             </div>
@@ -254,18 +290,14 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Full Name / Callsign</label>
                   <input 
-                    type="text" 
-                    value={fullName} 
-                    onChange={e => setFullName(e.target.value)} 
-                    placeholder="Capt. J. Miller"
+                    type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Capt. J. Miller"
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Role / Clearance</label>
                   <select 
-                    value={role} 
-                    onChange={e => setRole(e.target.value)}
+                    value={role} onChange={e => setRole(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
                   >
                     <option value="Shooter">Shooter / Gunner</option>
@@ -282,10 +314,7 @@ Generated securely by APEX Ballistics Telemetry Engine.
           </form>
 
           <div className="mt-6 text-center">
-            <button 
-              onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
-              className="text-xs text-amber-400 hover:underline"
-            >
+            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-xs text-amber-400 hover:underline">
               {authMode === 'login' ? "Don't have an account? Register here" : "Already have an account? Sign in"}
             </button>
           </div>
@@ -296,7 +325,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
           <Shield className="w-8 h-8 text-amber-500" />
@@ -324,10 +352,8 @@ Generated securely by APEX Ballistics Telemetry Engine.
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
         
-        {/* --- VIEW: DASHBOARD --- */}
         {currentView === 'dashboard' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -343,7 +369,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
               </button>
             </div>
 
-            {/* Quick Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
                 <div className="flex justify-between items-center text-slate-400 mb-2">
@@ -368,7 +393,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
               </div>
             </div>
 
-            {/* Recent Sessions History */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
               <h3 className="text-lg font-bold text-white mb-4">Historical Session Archive</h3>
               {sessions.length === 0 ? (
@@ -409,7 +433,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
           </div>
         )}
 
-        {/* --- VIEW: ARMORY & AMMO MANAGER --- */}
         {currentView === 'armory' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -417,16 +440,12 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 <h2 className="text-2xl font-bold text-white">Armory & Ammunition Inventory</h2>
                 <p className="text-sm text-slate-400">Configure custom firearms, artillery units, calibers, and powder charge lots.</p>
               </div>
-              <button 
-                onClick={() => setCurrentView('dashboard')}
-                className="text-sm text-slate-400 hover:text-white"
-              >
+              <button onClick={() => setCurrentView('dashboard')} className="text-sm text-slate-400 hover:text-white">
                 ← Back to Dashboard
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Add / List Firearms */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                 <h3 className="font-bold text-white text-lg flex items-center gap-2">
                   <Shield className="w-5 h-5 text-amber-500" /> Firearm / Artillery Registry
@@ -483,7 +502,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 </div>
               </div>
 
-              {/* Add / List Ammunition & Charges */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                 <h3 className="font-bold text-white text-lg flex items-center gap-2">
                   <Zap className="w-5 h-5 text-amber-500" /> Ammunition & Charge Customizer
@@ -549,7 +567,6 @@ Generated securely by APEX Ballistics Telemetry Engine.
           </div>
         )}
 
-        {/* --- VIEW: SETUP WIZARD --- */}
         {currentView === 'setup' && (
           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
             <div>
@@ -558,39 +575,25 @@ Generated securely by APEX Ballistics Telemetry Engine.
             </div>
 
             <div className="space-y-4">
-              {/* Session Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Date</label>
-                  <input 
-                    type="date" value={sessionMeta.date} onChange={e => setSessionMeta({...sessionMeta, date: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="date" value={sessionMeta.date} onChange={e => setSessionMeta({...sessionMeta, date: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Time</label>
-                  <input 
-                    type="time" value={sessionMeta.time} onChange={e => setSessionMeta({...sessionMeta, time: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="time" value={sessionMeta.time} onChange={e => setSessionMeta({...sessionMeta, time: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Field / Range Name</label>
-                  <input 
-                    type="text" value={sessionMeta.field} onChange={e => setSessionMeta({...sessionMeta, field: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.field} onChange={e => setSessionMeta({...sessionMeta, field: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Supervisor / RO</label>
-                  <input 
-                    type="text" value={sessionMeta.supervisor} onChange={e => setSessionMeta({...sessionMeta, supervisor: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.supervisor} onChange={e => setSessionMeta({...sessionMeta, supervisor: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
               </div>
 
-              {/* Weapon & Ammo */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Gun Name / System</label>
@@ -614,47 +617,31 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Gun Serial / ID</label>
-                  <input 
-                    type="text" value={sessionMeta.gunNumber} onChange={e => setSessionMeta({...sessionMeta, gunNumber: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.gunNumber} onChange={e => setSessionMeta({...sessionMeta, gunNumber: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Caliber</label>
-                  <input 
-                    type="text" value={sessionMeta.caliber} onChange={e => setSessionMeta({...sessionMeta, caliber: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.caliber} onChange={e => setSessionMeta({...sessionMeta, caliber: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Ammunition Type & Round</label>
-                  <select 
-                    value={sessionMeta.ammoType} onChange={e => setSessionMeta({...sessionMeta, ammoType: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  >
+                  <select value={sessionMeta.ammoType} onChange={e => setSessionMeta({...sessionMeta, ammoType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm">
                     {ammoInventory.map(am => <option key={am.id} value={am.name}>{am.name} [{am.roundType}]</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Muzzle Velocity</label>
-                  <input 
-                    type="text" value={sessionMeta.muzzleVelocity} onChange={e => setSessionMeta({...sessionMeta, muzzleVelocity: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.muzzleVelocity} onChange={e => setSessionMeta({...sessionMeta, muzzleVelocity: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Rounds per Test Round</label>
-                  <input 
-                    type="number" min="1" max="20" value={sessionMeta.declaredRounds} onChange={e => setSessionMeta({...sessionMeta, declaredRounds: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="number" min="1" max="20" value={sessionMeta.declaredRounds} onChange={e => setSessionMeta({...sessionMeta, declaredRounds: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
               </div>
 
-              {/* Artillery Specific Fields if toggled */}
               {sessionMeta.isArtillery && (
                 <div className="bg-amber-950/20 border border-amber-500/30 p-4 rounded-xl space-y-3">
                   <h4 className="font-bold text-amber-400 text-sm flex items-center gap-2">
@@ -663,10 +650,7 @@ Generated securely by APEX Ballistics Telemetry Engine.
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Artillery Round Type</label>
-                      <select 
-                        value={sessionMeta.artilleryRoundType} onChange={e => setSessionMeta({...sessionMeta, artilleryRoundType: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm"
-                      >
+                      <select value={sessionMeta.artilleryRoundType} onChange={e => setSessionMeta({...sessionMeta, artilleryRoundType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm">
                         <option value="HE (High Explosive)">HE (High Explosive)</option>
                         <option value="AP (Armor Piercing)">AP (Armor Piercing)</option>
                         <option value="Smoke WP">Smoke WP</option>
@@ -676,71 +660,45 @@ Generated securely by APEX Ballistics Telemetry Engine.
                     </div>
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Charge Name / Zone</label>
-                      <input 
-                        type="text" value={sessionMeta.artilleryChargeName} onChange={e => setSessionMeta({...sessionMeta, artilleryChargeName: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm"
-                      />
+                      <input type="text" value={sessionMeta.artilleryChargeName} onChange={e => setSessionMeta({...sessionMeta, artilleryChargeName: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm" />
                     </div>
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Number of Charge Increments</label>
-                      <input 
-                        type="number" min="1" max="10" value={sessionMeta.artilleryNumCharges} onChange={e => setSessionMeta({...sessionMeta, artilleryNumCharges: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm"
-                      />
+                      <input type="number" min="1" max="10" value={sessionMeta.artilleryNumCharges} onChange={e => setSessionMeta({...sessionMeta, artilleryNumCharges: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm" />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Target & Distance */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Type</label>
-                  <input 
-                    type="text" value={sessionMeta.targetType} onChange={e => setSessionMeta({...sessionMeta, targetType: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="text" value={sessionMeta.targetType} onChange={e => setSessionMeta({...sessionMeta, targetType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Width (cm)</label>
-                  <input 
-                    type="number" value={sessionMeta.targetWidthCm} onChange={e => setSessionMeta({...sessionMeta, targetWidthCm: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="number" value={sessionMeta.targetWidthCm} onChange={e => setSessionMeta({...sessionMeta, targetWidthCm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Height (cm)</label>
-                  <input 
-                    type="number" value={sessionMeta.targetHeightCm} onChange={e => setSessionMeta({...sessionMeta, targetHeightCm: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="number" value={sessionMeta.targetHeightCm} onChange={e => setSessionMeta({...sessionMeta, targetHeightCm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Distance (Meters)</label>
-                  <input 
-                    type="number" value={sessionMeta.distanceMeters} onChange={e => setSessionMeta({...sessionMeta, distanceMeters: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
-                  />
+                  <input type="number" value={sessionMeta.distanceMeters} onChange={e => setSessionMeta({...sessionMeta, distanceMeters: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
                 </div>
               </div>
 
-              {/* Toggles */}
               <div className="grid grid-cols-2 gap-4 pt-2">
                 <label className="flex items-center gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 cursor-pointer">
-                  <input 
-                    type="checkbox" checked={sessionMeta.isNight} onChange={e => setSessionMeta({...sessionMeta, isNight: e.target.checked})}
-                    className="w-4 h-4 accent-amber-500"
-                  />
+                  <input type="checkbox" checked={sessionMeta.isNight} onChange={e => setSessionMeta({...sessionMeta, isNight: e.target.checked})} className="w-4 h-4 accent-amber-500" />
                   <div>
                     <div className="font-bold text-sm text-white">Night / Low-Light Firing</div>
                     <div className="text-xs text-slate-400">Enables thermal/night telemetry compensation</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 cursor-pointer">
-                  <input 
-                    type="checkbox" checked={sessionMeta.isMoving} onChange={e => setSessionMeta({...sessionMeta, isMoving: e.target.checked})}
-                    className="w-4 h-4 accent-amber-500"
-                  />
+                  <input type="checkbox" checked={sessionMeta.isMoving} onChange={e => setSessionMeta({...sessionMeta, isMoving: e.target.checked})} className="w-4 h-4 accent-amber-500" />
                   <div>
                     <div className="font-bold text-sm text-white">Moving Target Dynamics</div>
                     <div className="text-xs text-slate-400">Track dynamic lead and velocity vectors</div>
@@ -752,24 +710,15 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 <div className="grid grid-cols-3 gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Starting Distance (m)</label>
-                    <input 
-                      type="number" value={sessionMeta.startDist} onChange={e => setSessionMeta({...sessionMeta, startDist: e.target.value})}
-                      className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm"
-                    />
+                    <input type="number" value={sessionMeta.startDist} onChange={e => setSessionMeta({...sessionMeta, startDist: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Firing Impact Distance (m)</label>
-                    <input 
-                      type="number" value={sessionMeta.fireDist} onChange={e => setSessionMeta({...sessionMeta, fireDist: e.target.value})}
-                      className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm"
-                    />
+                    <input type="number" value={sessionMeta.fireDist} onChange={e => setSessionMeta({...sessionMeta, fireDist: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Target Speed (km/h)</label>
-                    <input 
-                      type="number" value={sessionMeta.targetSpeed} onChange={e => setSessionMeta({...sessionMeta, targetSpeed: e.target.value})}
-                      className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm"
-                    />
+                    <input type="number" value={sessionMeta.targetSpeed} onChange={e => setSessionMeta({...sessionMeta, targetSpeed: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
                   </div>
                 </div>
               )}
@@ -778,6 +727,7 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 onClick={() => {
                   setCurrentRoundNumber(1);
                   setShotHits({});
+                  setRoundImages({});
                   setCurrentView('firing');
                 }}
                 className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-4 rounded-xl flex items-center justify-center gap-2 text-lg shadow-lg transition mt-4"
@@ -788,108 +738,122 @@ Generated securely by APEX Ballistics Telemetry Engine.
           </div>
         )}
 
-        {/* --- VIEW: FIRING & TARGET ANALYSIS --- */}
+        {/* --- VIEW: INTERACTIVE FIRING & RETICLE PLACEMENT CANVAS --- */}
         {currentView === 'firing' && (
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-5xl mx-auto space-y-6">
             <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-xl">
               <div>
                 <h2 className="text-xl font-bold text-white">Round #{currentRoundNumber} Firing Phase</h2>
                 <p className="text-xs text-slate-400">{sessionMeta.gunName} | Caliber: {sessionMeta.caliber} | Target: {sessionMeta.targetType}</p>
               </div>
-              <button onClick={() => setCurrentView('setup')} className="text-xs text-slate-400 hover:text-white">
-                Edit Metadata
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-xs bg-amber-500/20 text-amber-400 px-3 py-1 rounded-lg">
+                  {shotHits[currentRoundNumber]?.length || 0} / {sessionMeta.declaredRounds} Shots Marked
+                </span>
+                <button onClick={() => setCurrentView('setup')} className="text-xs text-slate-400 hover:text-white">
+                  Edit Metadata
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Photo Upload Box */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col items-center justify-center text-center">
-                <Target className="w-16 h-16 text-amber-500 opacity-80" />
-                <div>
-                  <h3 className="font-bold text-white text-lg">Upload Post-Firing Target Photo</h3>
-                  <p className="text-xs text-slate-400 mt-1">Upload target photo for Round #{currentRoundNumber}. The app will automatically isolate impact points.</p>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Left sidebar tools */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 lg:col-span-1">
+                <h3 className="font-bold text-white text-sm">Target Controls</h3>
+                
+                <div className="space-y-2">
+                  <label className="block text-xs text-slate-400">Upload Target Image</label>
+                  <label className="cursor-pointer block bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold p-3 rounded-xl border border-slate-700 text-center text-xs transition">
+                    <span>📁 Upload Target Photo</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                  </label>
                 </div>
-                <label className="cursor-pointer bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold px-6 py-3 rounded-xl border border-slate-700 transition">
-                  <span>Select Target Image File</span>
-                  <input 
-                    type="file" accept="image/*" className="hidden" 
-                    onChange={e => {
-                      if (e.target.files[0]) {
-                        simulateShotDetection(currentRoundNumber);
-                      }
-                    }}
-                  />
-                </label>
+
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <label className="block text-xs text-slate-400">Zoom Canvas</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setZoomLevel(prev => Math.max(0.5, prev - 0.25))} className="flex-1 bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                      <ZoomOut className="w-3.5 h-3.5" /> Out
+                    </button>
+                    <button onClick={() => setZoomLevel(prev => Math.min(2, prev + 0.25))} className="flex-1 bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                      <ZoomIn className="w-3.5 h-3.5" /> In
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-slate-800 text-xs text-slate-400">
+                  <p className="font-bold text-white">Instructions:</p>
+                  <p>1. Upload your target photo.</p>
+                  <p>2. Click anywhere on the target to place a shot marker.</p>
+                  <p>3. Drag and drop any numbered marker to adjust its exact hit position.</p>
+                </div>
+
                 <button 
-                  onClick={() => simulateShotDetection(currentRoundNumber)}
-                  className="text-xs text-slate-400 hover:text-amber-400 underline mt-2"
+                  onClick={() => {
+                    const nextRound = confirm("Is there another round of firing?");
+                    if (nextRound) {
+                      setCurrentRoundNumber(prev => prev + 1);
+                    } else {
+                      calculateBallistics();
+                    }
+                  }}
+                  className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-3 rounded-xl text-xs transition shadow-lg mt-4"
                 >
-                  [Simulate Auto-Detection Test]
+                  Confirm Round & Continue
                 </button>
               </div>
 
-              {/* Interactive Target Canvas & Shot Confirm */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-bold text-white text-sm">Target Scoring & Hit Detection</h3>
-                  <span className="text-xs bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded">
-                    {shotHits[currentRoundNumber]?.length || 0} / {sessionMeta.declaredRounds} Shots Detected
-                  </span>
-                </div>
-
-                {/* Simulated Target Graphic View */}
-                <div className="relative w-full h-72 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-center overflow-hidden">
-                  <div className="absolute w-60 h-60 rounded-full border border-slate-800 flex items-center justify-center">
-                    <div className="absolute w-44 h-44 rounded-full border border-slate-800 flex items-center justify-center">
-                      <div className="absolute w-28 h-28 rounded-full border border-amber-500/30 flex items-center justify-center">
-                        <div className="absolute w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+              {/* Main Interactive Canvas Area */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 lg:col-span-3 flex flex-col items-center justify-center overflow-hidden">
+                <div 
+                  ref={canvasRef}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
+                  onClick={handleCanvasClick}
+                  className="relative w-[600px] h-[450px] bg-slate-950 border border-slate-800 rounded-xl cursor-crosshair overflow-hidden flex items-center justify-center shadow-inner"
+                  style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center' }}
+                >
+                  {/* Background Target Image or Default Target Rings */}
+                  {roundImages[currentRoundNumber] ? (
+                    <img src={roundImages[currentRoundNumber]} alt="Target" className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-85" />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-96 h-96 rounded-full border-2 border-slate-800 flex items-center justify-center">
+                        <div className="w-72 h-72 rounded-full border border-slate-800 flex items-center justify-center">
+                          <div className="w-48 h-48 rounded-full border border-amber-500/30 flex items-center justify-center">
+                            <div className="w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500 flex items-center justify-center">
+                              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
+                  {/* Interactive Draggable Shot Markers */}
                   {(shotHits[currentRoundNumber] || []).map(shot => (
                     <div 
-                      key={shot.id} 
-                      className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-amber-500 border-2 border-slate-950 flex items-center justify-center text-[10px] font-bold text-slate-950 shadow-lg cursor-pointer animate-pulse"
+                      key={shot.id}
+                      onMouseDown={(e) => handleDragShot(e, shot.id)}
+                      className="absolute w-7 h-7 -ml-3.5 -mt-3.5 rounded-full bg-amber-500 border-2 border-slate-950 flex items-center justify-center text-xs font-bold text-slate-950 shadow-xl cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
                       style={{ left: `${shot.x}px`, top: `${shot.y}px` }}
-                      title={`Shot #${shot.id}`}
+                      title={`Shot #${shot.id} (Drag to move)`}
                     >
                       {shot.id}
                     </div>
                   ))}
 
                   {(!shotHits[currentRoundNumber] || shotHits[currentRoundNumber].length === 0) && (
-                    <div className="text-xs text-slate-500 z-10">Upload photo or simulate detection to view bullet impacts</div>
+                    <div className="absolute bottom-4 bg-slate-900/90 text-slate-300 px-4 py-2 rounded-lg text-xs border border-slate-700 pointer-events-none">
+                      Click anywhere on target to mark bullet impact points
+                    </div>
                   )}
-                </div>
-
-                <p className="text-xs text-slate-400 text-center">
-                  You can drag/adjust shot markers manually if any impacts were obscured.
-                </p>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={() => {
-                      const nextRound = confirm("Is there another round of firing?");
-                      if (nextRound) {
-                        setCurrentRoundNumber(prev => prev + 1);
-                      } else {
-                        calculateBallistics();
-                      }
-                    }}
-                    className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-3 rounded-xl text-sm transition"
-                  >
-                    Confirm Round & Continue / Finish
-                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* --- VIEW: REPORT & SUMMARY --- */}
         {currentView === 'report' && analysisResult && (
           <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
             <div className="flex justify-between items-center border-b border-slate-800 pb-4">
@@ -950,16 +914,10 @@ Generated securely by APEX Ballistics Telemetry Engine.
             </div>
 
             <div className="flex justify-between pt-4">
-              <button 
-                onClick={() => setCurrentView('dashboard')}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition"
-              >
+              <button onClick={() => setCurrentView('dashboard')} className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition">
                 Return to Dashboard
               </button>
-              <button 
-                onClick={() => setCurrentView('setup')}
-                className="bg-amber-600 hover:bg-amber-500 text-slate-950 px-6 py-3 rounded-xl text-sm font-bold transition flex items-center gap-2"
-              >
+              <button onClick={() => setCurrentView('setup')} className="bg-amber-600 hover:bg-amber-500 text-slate-950 px-6 py-3 rounded-xl text-sm font-bold transition flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" /> Start New Test Session
               </button>
             </div>
