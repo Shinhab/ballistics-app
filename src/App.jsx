@@ -70,9 +70,8 @@ export default function App() {
 
   // Firing & Target Analysis State
   const [currentRoundNumber, setCurrentRoundNumber] = useState(1);
-  const [targetImages, setTargetImages] = useState({}); // roundNum -> { baselineUrl, postUrl }
-  const [shotHits, setShotHits] = useState({}); // roundNum -> [{x, y}]
-  const [activeTab, setActiveTab] = useState('setup');
+  const [targetImages, setTargetImages] = useState({});
+  const [shotHits, setShotHits] = useState({});
   const [analysisResult, setAnalysisResult] = useState(null);
 
   // Save states to local storage automatically
@@ -122,11 +121,10 @@ export default function App() {
 
   // --- SIMULATED COMPUTER VISION SHOT DETECTION ---
   const simulateShotDetection = (roundNum) => {
-    // Generate simulated coordinates based on declared rounds
     const hits = [];
     const count = parseInt(sessionMeta.declaredRounds) || 5;
-    const centerX = 225; // center of 450px canvas
-    const centerY = 200; // center of 400px canvas
+    const centerX = 225;
+    const centerY = 200;
     const spread = sessionMeta.isArtillery ? 60 : 25;
 
     for (let i = 0; i < count; i++) {
@@ -144,7 +142,6 @@ export default function App() {
   };
 
   const allRoundsCompleted = () => {
-    // Compile final analysis
     let totalHits = 0;
     let allShotsList = [];
     Object.values(shotHits).forEach(round => {
@@ -152,7 +149,6 @@ export default function App() {
       allShotsList.push(...round);
     });
 
-    // Calculate mock extreme spread and MOA
     const es = sessionMeta.isArtillery ? (Math.random() * 4.5 + 2.1).toFixed(2) + ' Mil' : (Math.random() * 1.5 + 0.4).toFixed(2) + ' MOA';
     const mr = sessionMeta.isArtillery ? (Math.random() * 2.0 + 1.0).toFixed(2) + ' Mil' : (Math.random() * 0.8 + 0.2).toFixed(2) + ' MOA';
     const poiShiftX = ((Math.random() - 0.5) * 3).toFixed(1);
@@ -231,58 +227,3 @@ Generated securely by APEX Ballistics Telemetry Engine.
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
-              <input 
-                type="email" 
-                required 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                placeholder="operator@apex.mil"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Password</label>
-              <input 
-                type="password" 
-                required 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-            {authMode === 'signup' && (
-              <>
-                <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Full Name / Callsign</label>
-                  <input 
-                    type="text" 
-                    value={fullName} 
-                    onChange={e => setFullName(e.target.value)} 
-                    placeholder="Capt. J. Miller"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Role / Clearance</label>
-                  <select 
-                    value={role} 
-                    onChange={e => setRole(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                  >
-                    <option value="Shooter">Shooter / Gunner</option>
-                    <option value="Supervisor">Range Officer / Supervisor</option>
-                    <option value="Administrator">Armorer / Administrator</option>
-                  </select>
-                </div>
-              </>
-            )}
-
-            <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-3 rounded-lg transition tracking-wide">
-              {authMode === 'login' ? 'ACCESS SECURE PLATFORM' : 'CREATE ACCOUNT & INITIALIZE'}
-            </button>
-          </form>
-
-          <div className="mt-6 text
