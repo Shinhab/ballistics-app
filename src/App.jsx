@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Shield, Crosshair, Target, FileText, Download, User, LogOut, Plus, Trash2, 
   Settings, Award, RefreshCw, AlertCircle, CheckCircle2, ChevronRight, BarChart2,
-  Compass, Zap, Database, Move, ZoomIn, ZoomOut
+  Compass, Zap, Database
 } from 'lucide-react';
 
 export default function App() {
@@ -67,16 +67,10 @@ export default function App() {
     declaredRounds: 5
   });
 
-  // --- INTERACTIVE FIRING & RETICLE PLACEMENT STATE ---
   const [currentRoundNumber, setCurrentRoundNumber] = useState(1);
-  const [roundImages, setRoundImages] = useState({}); // roundNum -> image URL
-  const [shotHits, setShotHits] = useState({}); // roundNum -> [{ id, x, y }]
-  const [selectedShotId, setSelectedShotId] = useState(null);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [shotHits, setShotHits] = useState({});
   const [analysisResult, setAnalysisResult] = useState(null);
-  const canvasRef = useRef(null);
 
-  // Save states automatically
   useEffect(() => {
     localStorage.setItem('apex_armory', JSON.stringify(armory));
   }, [armory]);
@@ -89,7 +83,6 @@ export default function App() {
     localStorage.setItem('apex_sessions', JSON.stringify(sessions));
   }, [sessions]);
 
-  // --- AUTH HANDLERS ---
   const handleAuth = (e) => {
     e.preventDefault();
     if (!email || !password) return alert('Please enter email and password.');
@@ -103,7 +96,6 @@ export default function App() {
     setCurrentView('dashboard');
   };
 
-  // --- ARMORY & AMMO MANAGEMENT ---
   const [newArmoryItem, setNewArmoryItem] = useState({ name: '', type: 'Firearm', caliber: '', serial: '', muzzleVelocity: '' });
   const [newAmmoItem, setNewAmmoItem] = useState({ name: '', caliber: '5.56x45mm', roundType: 'FMJ', bulletWeight: '', powderCharge: '' });
 
@@ -121,73 +113,22 @@ export default function App() {
     setNewAmmoItem({ name: '', caliber: '5.56x45mm', roundType: 'FMJ', bulletWeight: '', powderCharge: '' });
   };
 
-  // --- TARGET IMAGE & AUTO / MANUAL RETICLE PLACEMENT ---
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setRoundImages(prev => ({ ...prev, [currentRoundNumber]: url }));
+  const simulateShotDetection = (roundNum) => {
+    const hits = [];
+    const count = parseInt(sessionMeta.declaredRounds) || 5;
+    const centerX = 225;
+    const centerY = 200;
+    const spread = sessionMeta.isArtillery ? 60 : 25;
 
-      // Auto-detect simulated hits upon image load
-      const declared = parseInt(sessionMeta.declaredRounds) || 5;
-      const autoHits = [];
-      const centerX = 300;
-      const centerY = 200;
-      const spread = sessionMeta.isArtillery ? 70 : 30;
-
-      for (let i = 0; i < declared; i++) {
-        autoHits.push({
-          id: i + 1,
-          x: Math.round(centerX + (Math.random() - 0.5) * spread),
-          y: Math.round(centerY + (Math.random() - 0.5) * spread)
-        });
-      }
-      setShotHits(prev => ({ ...prev, [currentRoundNumber]: autoHits }));
-    }
-  };
-
-  const handleCanvasClick = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.round((e.clientX - rect.left) / zoomLevel);
-    const y = Math.round((e.clientY - rect.top) / zoomLevel);
-
-    const currentHits = shotHits[currentRoundNumber] || [];
-    const newId = currentHits.length + 1;
-    if (newId > (parseInt(sessionMeta.declaredRounds) || 5)) {
-      alert(`Maximum declared rounds (${sessionMeta.declaredRounds}) reached. Click an existing marker to drag/adjust it.`);
-      return;
+    for (let i = 0; i < count; i++) {
+      const offsetX = (Math.random() - 0.5) * spread * (sessionMeta.isArtillery ? 1.8 : 1);
+      const offsetY = (Math.random() - 0.5) * spread * (sessionMeta.isArtillery ? 1.8 : 1);
+      hits.push({ id: i + 1, x: Math.round(centerX + offsetX), y: Math.round(centerY + offsetY) });
     }
 
-    setShotHits(prev => ({
-      ...prev,
-      [currentRoundNumber]: [...currentHits, { id: newId, x, y }]
-    }));
+    setShotHits(prev => ({ ...prev, [roundNum]: hits }));
   };
 
-  const handleDragShot = (e, shotId) => {
-    e.stopPropagation();
-    setSelectedShotId(shotId);
-  };
-
-  const handleCanvasMouseMove = (e) => {
-    if (selectedShotId === null) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = Math.round((e.clientX - rect.left) / zoomLevel);
-    const y = Math.round((e.clientY - rect.top) / zoomLevel);
-
-    setShotHits(prev => ({
-      ...prev,
-      [currentRoundNumber]: (prev[currentRoundNumber] || []).map(shot => 
-        shot.id === selectedShotId ? { ...shot, x, y } : shot
-      )
-    }));
-  };
-
-  const handleCanvasMouseUp = () => {
-    setSelectedShotId(null);
-  };
-
-  // --- BALLISTICS CALCULATION & REPORT ---
   const calculateBallistics = () => {
     let totalHits = 0;
     Object.values(shotHits).forEach(round => {
@@ -257,48 +198,47 @@ Generated securely by APEX Ballistics Telemetry Engine.
     URL.revokeObjectURL(url);
   };
 
-  // ================= RENDER =================
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+      <div className="min-h-screen bg-black text-white flex flex-col justify-center items-center p-4">
+        <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-xl p-8 shadow-2xl">
           <div className="flex items-center gap-3 mb-6">
-            <Shield className="w-10 h-10 text-amber-500" />
+            <Shield className="w-10 h-10 text-emerald-500" />
             <div>
-              <h1 className="text-2xl font-bold tracking-wider text-white">APEX BALLISTICS</h1>
-              <p className="text-xs text-slate-400">Secure Target Scoring & Telemetry Platform</p>
+              <h1 className="text-xl font-bold tracking-wider text-white">APEX BALLISTICS</h1>
+              <p className="text-xs text-neutral-400">Target Scoring & Telemetry System</p>
             </div>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
             <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
+              <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1">Email Address</label>
               <input 
                 type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="operator@apex.mil"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
+                className="w-full bg-black border border-neutral-800 rounded-lg px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Password</label>
+              <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1">Password</label>
               <input 
                 type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
+                className="w-full bg-black border border-neutral-800 rounded-lg px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
               />
             </div>
             {authMode === 'signup' && (
               <>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Full Name / Callsign</label>
+                  <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1">Full Name / Callsign</label>
                   <input 
                     type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Capt. J. Miller"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-black border border-neutral-800 rounded-lg px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Role / Clearance</label>
+                  <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1">Role / Clearance</label>
                   <select 
                     value={role} onChange={e => setRole(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
+                    className="w-full bg-black border border-neutral-800 rounded-lg px-4 py-3 text-white focus:border-emerald-500 focus:outline-none"
                   >
                     <option value="Shooter">Shooter / Gunner</option>
                     <option value="Supervisor">Range Officer / Supervisor</option>
@@ -308,13 +248,13 @@ Generated securely by APEX Ballistics Telemetry Engine.
               </>
             )}
 
-            <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-3 rounded-lg transition tracking-wide">
-              {authMode === 'login' ? 'ACCESS SECURE PLATFORM' : 'CREATE ACCOUNT & INITIALIZE'}
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-3 rounded-lg transition tracking-wide">
+              {authMode === 'login' ? 'ACCESS SYSTEM' : 'CREATE ACCOUNT'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
-            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-xs text-amber-400 hover:underline">
+            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-xs text-emerald-400 hover:underline">
               {authMode === 'login' ? "Don't have an account? Register here" : "Already have an account? Sign in"}
             </button>
           </div>
@@ -324,107 +264,90 @@ Generated securely by APEX Ballistics Telemetry Engine.
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-black text-white flex flex-col font-sans">
+      <header className="bg-neutral-900 border-b border-neutral-800 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-          <Shield className="w-8 h-8 text-amber-500" />
+          <Shield className="w-7 h-7 text-emerald-500" />
           <div>
-            <h1 className="font-bold tracking-wider text-lg text-white">APEX BALLISTICS</h1>
-            <p className="text-xs text-slate-400">Secured Telemetry & Target Scoring</p>
+            <h1 className="font-bold tracking-wider text-base text-white">APEX BALLISTICS</h1>
+            <p className="text-xs text-neutral-400">Target Scoring & Telemetry</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4">
           <button 
             onClick={() => setCurrentView('armory')} 
-            className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border ${currentView === 'armory' ? 'bg-amber-500/20 border-amber-500 text-amber-400' : 'border-slate-800 text-slate-300 hover:bg-slate-800'}`}
+            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ${currentView === 'armory' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-neutral-800 text-neutral-300 hover:bg-neutral-800'}`}
           >
             <Database className="w-4 h-4" /> Armory & Ammo Manager
           </button>
-          <div className="flex items-center gap-3 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-            <User className="w-4 h-4 text-amber-500" />
-            <span className="text-sm font-medium text-slate-200">{user.fullName}</span>
-            <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">{user.role}</span>
+          <div className="flex items-center gap-2 bg-neutral-950 px-3 py-1.5 rounded-lg border border-neutral-800">
+            <User className="w-4 h-4 text-emerald-500" />
+            <span className="text-xs font-medium text-neutral-200">{user.fullName}</span>
           </div>
-          <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 p-2" title="Log Out">
+          <button onClick={handleLogout} className="text-neutral-400 hover:text-red-400 p-2" title="Log Out">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
       </header>
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-6 max-w-6xl mx-auto w-full">
         
         {currentView === 'dashboard' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-bold text-white">Firing Range Dashboard</h2>
-                <p className="text-sm text-slate-400">Manage live test sessions, configure ordnance, and review historical telemetry.</p>
+                <h2 className="text-xl font-bold text-white">Dashboard & Range Logs</h2>
+                <p className="text-xs text-neutral-400">Manage live firing tests and review tactical session history.</p>
               </div>
               <button 
                 onClick={() => setCurrentView('setup')}
-                className="bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold px-5 py-3 rounded-xl flex items-center gap-2 shadow-lg transition"
+                className="bg-emerald-600 hover:bg-emerald-500 text-black font-bold px-4 py-2.5 rounded-lg flex items-center gap-2 text-xs shadow-lg transition"
               >
-                <Crosshair className="w-5 h-5" /> Start New Firing Test
+                <Crosshair className="w-4 h-4" /> Start Firing Test
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <div className="flex justify-between items-center text-slate-400 mb-2">
-                  <span className="text-xs uppercase tracking-wider">Registered Firearms / Systems</span>
-                  <Shield className="w-5 h-5 text-amber-500" />
-                </div>
-                <div className="text-3xl font-bold text-white">{armory.length}</div>
+              <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl">
+                <div className="text-xs text-neutral-400 mb-1">Registered Systems</div>
+                <div className="text-2xl font-bold text-white">{armory.length}</div>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <div className="flex justify-between items-center text-slate-400 mb-2">
-                  <span className="text-xs uppercase tracking-wider">Ammunition & Charge Lots</span>
-                  <Zap className="w-5 h-5 text-amber-500" />
-                </div>
-                <div className="text-3xl font-bold text-white">{ammoInventory.length}</div>
+              <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl">
+                <div className="text-xs text-neutral-400 mb-1">Ammunition Profiles</div>
+                <div className="text-2xl font-bold text-white">{ammoInventory.length}</div>
               </div>
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <div className="flex justify-between items-center text-slate-400 mb-2">
-                  <span className="text-xs uppercase tracking-wider">Completed Test Sessions</span>
-                  <Award className="w-5 h-5 text-amber-500" />
-                </div>
-                <div className="text-3xl font-bold text-white">{sessions.length}</div>
+              <div className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl">
+                <div className="text-xs text-neutral-400 mb-1">Completed Sessions</div>
+                <div className="text-2xl font-bold text-white">{sessions.length}</div>
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-lg font-bold text-white mb-4">Historical Session Archive</h3>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5">
+              <h3 className="text-sm font-bold text-white mb-3">Historical Test Reports</h3>
               {sessions.length === 0 ? (
-                <div className="text-center py-12 text-slate-500">
-                  <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>No firing sessions recorded yet. Click "Start New Firing Test" to begin.</p>
+                <div className="text-center py-8 text-neutral-500 text-xs">
+                  No firing sessions recorded yet. Click "Start Firing Test" to begin.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {sessions.map(s => (
-                    <div key={s.id} className="bg-slate-950 border border-slate-800/80 p-4 rounded-xl flex justify-between items-center hover:border-slate-700 transition">
+                    <div key={s.id} className="bg-black border border-neutral-800 p-3 rounded-lg flex justify-between items-center text-xs">
                       <div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <span className="font-bold text-white">{s.meta.gunName}</span>
-                          <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">{s.meta.caliber}</span>
-                          {s.meta.isArtillery && <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">Artillery</span>}
+                          <span className="text-neutral-400">({s.meta.caliber})</span>
                         </div>
-                        <div className="text-xs text-slate-400 mt-1 flex gap-4">
-                          <span>📅 {s.meta.date} {s.meta.time}</span>
-                          <span>📍 {s.meta.field}</span>
-                          <span>🎯 {s.totalRoundsFired} Rounds</span>
-                          <span>📏 Spread: {s.extremeSpread}</span>
+                        <div className="text-neutral-500 mt-0.5">
+                          {s.meta.date} | {s.meta.field} | {s.totalRoundsFired} Hits | Spread: {s.extremeSpread}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <button 
-                          onClick={() => downloadReport(s)} 
-                          className="bg-slate-800 hover:bg-slate-700 text-amber-400 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition"
-                        >
-                          <Download className="w-4 h-4" /> Download Report
-                        </button>
-                      </div>
+                      <button 
+                        onClick={() => downloadReport(s)} 
+                        className="bg-neutral-800 hover:bg-neutral-700 text-emerald-400 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download Report
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -437,85 +360,85 @@ Generated securely by APEX Ballistics Telemetry Engine.
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-bold text-white">Armory & Ammunition Inventory</h2>
-                <p className="text-sm text-slate-400">Configure custom firearms, artillery units, calibers, and powder charge lots.</p>
+                <h2 className="text-xl font-bold text-white">Armory & Ammunition Inventory</h2>
+                <p className="text-xs text-neutral-400">Add custom weapons, artillery systems, round types, and powder charges.</p>
               </div>
-              <button onClick={() => setCurrentView('dashboard')} className="text-sm text-slate-400 hover:text-white">
+              <button onClick={() => setCurrentView('dashboard')} className="text-xs text-neutral-400 hover:text-white">
                 ← Back to Dashboard
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-500" /> Firearm / Artillery Registry
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 space-y-3">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-emerald-500" /> Firearm / Artillery Systems
                 </h3>
-                <form onSubmit={addArmoryItem} className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  <div className="grid grid-cols-2 gap-3">
+                <form onSubmit={addArmoryItem} className="space-y-2.5 bg-black p-3 rounded-lg border border-neutral-800">
+                  <div className="grid grid-cols-2 gap-2">
                     <input 
-                      type="text" placeholder="Gun Name (e.g. M240 / M119)" required
+                      type="text" placeholder="Gun Name (e.g. M4 / Howitzer)" required
                       value={newArmoryItem.name} onChange={e => setNewArmoryItem({...newArmoryItem, name: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <select 
                       value={newArmoryItem.type} onChange={e => setNewArmoryItem({...newArmoryItem, type: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     >
                       <option value="Firearm">Standard Firearm</option>
-                      <option value="Artillery">Artillery / Heavy Ordnance</option>
+                      <option value="Artillery">Artillery Unit</option>
                     </select>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <input 
-                      type="text" placeholder="Caliber / Bore" required
+                      type="text" placeholder="Caliber" required
                       value={newArmoryItem.caliber} onChange={e => setNewArmoryItem({...newArmoryItem, caliber: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <input 
-                      type="text" placeholder="Serial / ID"
+                      type="text" placeholder="Serial ID"
                       value={newArmoryItem.serial} onChange={e => setNewArmoryItem({...newArmoryItem, serial: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <input 
-                      type="text" placeholder="Muzzle Vel. (m/s)"
+                      type="text" placeholder="Muzzle Vel."
                       value={newArmoryItem.muzzleVelocity} onChange={e => setNewArmoryItem({...newArmoryItem, muzzleVelocity: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                   </div>
-                  <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-2 rounded-lg text-sm">
-                    Add System to Armory
+                  <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2 rounded text-xs">
+                    Add System
                   </button>
                 </form>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2 max-h-48 overflow-y-auto">
                   {armory.map(item => (
-                    <div key={item.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-sm">
+                    <div key={item.id} className="bg-black p-2.5 rounded border border-neutral-800 flex justify-between items-center text-xs">
                       <div>
-                        <span className="font-bold text-white">{item.name}</span> <span className="text-xs text-amber-400">({item.type})</span>
-                        <div className="text-xs text-slate-400">{item.caliber} | SN: {item.serial || 'N/A'} | MV: {item.muzzleVelocity}</div>
+                        <span className="font-bold text-white">{item.name}</span> <span className="text-neutral-400">({item.type})</span>
+                        <div className="text-neutral-500">{item.caliber} | {item.muzzleVelocity}</div>
                       </div>
-                      <button onClick={() => setArmory(armory.filter(a => a.id !== item.id))} className="text-red-400 hover:text-red-300">
-                        <Trash2 className="w-4 h-4" />
+                      <button onClick={() => setArmory(armory.filter(a => a.id !== item.id))} className="text-red-400">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-amber-500" /> Ammunition & Charge Customizer
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 space-y-3">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-emerald-500" /> Ammunition & Charges
                 </h3>
-                <form onSubmit={addAmmoItem} className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  <div className="grid grid-cols-2 gap-3">
+                <form onSubmit={addAmmoItem} className="space-y-2.5 bg-black p-3 rounded-lg border border-neutral-800">
+                  <div className="grid grid-cols-2 gap-2">
                     <input 
-                      type="text" placeholder="Ammo / Lot Name (e.g. M855 / HE Zone 5)" required
+                      type="text" placeholder="Ammo Name (e.g. M855 / HE Zone)" required
                       value={newAmmoItem.name} onChange={e => setNewAmmoItem({...newAmmoItem, name: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <select 
                       value={newAmmoItem.roundType} onChange={e => setNewAmmoItem({...newAmmoItem, roundType: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     >
                       <option value="FMJ">FMJ (Full Metal Jacket)</option>
                       <option value="HP">HP (Hollow Point)</option>
@@ -523,41 +446,41 @@ Generated securely by APEX Ballistics Telemetry Engine.
                       <option value="Match Grade">Match Grade</option>
                       <option value="Tracer">Tracer</option>
                       <option value="Subsonic">Subsonic</option>
-                      <option value="HE (High Explosive)">HE (High Explosive - Artillery)</option>
+                      <option value="HE (High Explosive)">HE (High Explosive)</option>
                       <option value="Illumination">Illumination Flare</option>
                     </select>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <input 
-                      type="text" placeholder="Caliber / Bore"
+                      type="text" placeholder="Caliber"
                       value={newAmmoItem.caliber} onChange={e => setNewAmmoItem({...newAmmoItem, caliber: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <input 
-                      type="text" placeholder="Bullet Weight (gr/kg)"
+                      type="text" placeholder="Bullet Weight"
                       value={newAmmoItem.bulletWeight} onChange={e => setNewAmmoItem({...newAmmoItem, bulletWeight: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                     <input 
-                      type="text" placeholder="Powder Charge / Zone"
+                      type="text" placeholder="Powder Charge"
                       value={newAmmoItem.powderCharge} onChange={e => setNewAmmoItem({...newAmmoItem, powderCharge: e.target.value})}
-                      className="bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-sm text-white"
+                      className="bg-neutral-900 border border-neutral-800 p-2 rounded text-xs text-white"
                     />
                   </div>
-                  <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-2 rounded-lg text-sm">
+                  <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2 rounded text-xs">
                     Add Ammunition Profile
                   </button>
                 </form>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2 max-h-48 overflow-y-auto">
                   {ammoInventory.map(ammo => (
-                    <div key={ammo.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex justify-between items-center text-sm">
+                    <div key={ammo.id} className="bg-black p-2.5 rounded border border-neutral-800 flex justify-between items-center text-xs">
                       <div>
-                        <span className="font-bold text-white">{ammo.name}</span> <span className="text-xs bg-slate-800 text-amber-400 px-2 py-0.5 rounded">{ammo.roundType}</span>
-                        <div className="text-xs text-slate-400">{ammo.caliber} | Weight: {ammo.bulletWeight} | Charge: {ammo.powderCharge}</div>
+                        <span className="font-bold text-white">{ammo.name}</span> <span className="text-emerald-400">[{ammo.roundType}]</span>
+                        <div className="text-neutral-500">{ammo.caliber} | Wt: {ammo.bulletWeight} | Chg: {ammo.powderCharge}</div>
                       </div>
-                      <button onClick={() => setAmmoInventory(ammoInventory.filter(a => a.id !== ammo.id))} className="text-red-400 hover:text-red-300">
-                        <Trash2 className="w-4 h-4" />
+                      <button onClick={() => setAmmoInventory(ammoInventory.filter(a => a.id !== ammo.id))} className="text-red-400">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ))}
@@ -568,35 +491,35 @@ Generated securely by APEX Ballistics Telemetry Engine.
         )}
 
         {currentView === 'setup' && (
-          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
+          <div className="max-w-2xl mx-auto bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4">
             <div>
-              <h2 className="text-2xl font-bold text-white">Firing Test Metadata & Parameters</h2>
-              <p className="text-sm text-slate-400">Configure weapon, environment, target geometry, and artillery parameters before firing begins.</p>
+              <h2 className="text-lg font-bold text-white">Firing Test Parameters</h2>
+              <p className="text-xs text-neutral-400">Configure range metadata, weapons, ammunition, and target details.</p>
             </div>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Date</label>
-                  <input type="date" value={sessionMeta.date} onChange={e => setSessionMeta({...sessionMeta, date: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Date</label>
+                  <input type="date" value={sessionMeta.date} onChange={e => setSessionMeta({...sessionMeta, date: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Time</label>
-                  <input type="time" value={sessionMeta.time} onChange={e => setSessionMeta({...sessionMeta, time: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Time</label>
+                  <input type="time" value={sessionMeta.time} onChange={e => setSessionMeta({...sessionMeta, time: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Field / Range Name</label>
-                  <input type="text" value={sessionMeta.field} onChange={e => setSessionMeta({...sessionMeta, field: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Field Name</label>
+                  <input type="text" value={sessionMeta.field} onChange={e => setSessionMeta({...sessionMeta, field: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Supervisor / RO</label>
-                  <input type="text" value={sessionMeta.supervisor} onChange={e => setSessionMeta({...sessionMeta, supervisor: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Supervisor</label>
+                  <input type="text" value={sessionMeta.supervisor} onChange={e => setSessionMeta({...sessionMeta, supervisor: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Gun Name / System</label>
+                  <label className="block text-neutral-400 mb-1">Gun System</label>
                   <select 
                     value={sessionMeta.gunName} 
                     onChange={e => {
@@ -610,115 +533,106 @@ Generated securely by APEX Ballistics Telemetry Engine.
                         isArtillery: selected?.type === 'Artillery'
                       });
                     }}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm"
+                    className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white"
                   >
                     {armory.map(a => <option key={a.id} value={a.name}>{a.name} ({a.type})</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Gun Serial / ID</label>
-                  <input type="text" value={sessionMeta.gunNumber} onChange={e => setSessionMeta({...sessionMeta, gunNumber: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Gun Serial / ID</label>
+                  <input type="text" value={sessionMeta.gunNumber} onChange={e => setSessionMeta({...sessionMeta, gunNumber: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Caliber</label>
-                  <input type="text" value={sessionMeta.caliber} onChange={e => setSessionMeta({...sessionMeta, caliber: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Caliber</label>
+                  <input type="text" value={sessionMeta.caliber} onChange={e => setSessionMeta({...sessionMeta, caliber: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Ammunition Type & Round</label>
-                  <select value={sessionMeta.ammoType} onChange={e => setSessionMeta({...sessionMeta, ammoType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm">
+                  <label className="block text-neutral-400 mb-1">Ammunition Type</label>
+                  <select value={sessionMeta.ammoType} onChange={e => setSessionMeta({...sessionMeta, ammoType: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white">
                     {ammoInventory.map(am => <option key={am.id} value={am.name}>{am.name} [{am.roundType}]</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Muzzle Velocity</label>
-                  <input type="text" value={sessionMeta.muzzleVelocity} onChange={e => setSessionMeta({...sessionMeta, muzzleVelocity: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Muzzle Velocity</label>
+                  <input type="text" value={sessionMeta.muzzleVelocity} onChange={e => setSessionMeta({...sessionMeta, muzzleVelocity: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Rounds per Test Round</label>
-                  <input type="number" min="1" max="20" value={sessionMeta.declaredRounds} onChange={e => setSessionMeta({...sessionMeta, declaredRounds: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Rounds per Test Round</label>
+                  <input type="number" min="1" max="20" value={sessionMeta.declaredRounds} onChange={e => setSessionMeta({...sessionMeta, declaredRounds: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
               </div>
 
               {sessionMeta.isArtillery && (
-                <div className="bg-amber-950/20 border border-amber-500/30 p-4 rounded-xl space-y-3">
-                  <h4 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                    <Compass className="w-4 h-4" /> Artillery & Heavy Ordnance Parameters
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-neutral-950 border border-emerald-500/30 p-3 rounded-lg space-y-2">
+                  <h4 className="font-bold text-emerald-400 text-xs">Artillery Parameters</h4>
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Artillery Round Type</label>
-                      <select value={sessionMeta.artilleryRoundType} onChange={e => setSessionMeta({...sessionMeta, artilleryRoundType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm">
-                        <option value="HE (High Explosive)">HE (High Explosive)</option>
-                        <option value="AP (Armor Piercing)">AP (Armor Piercing)</option>
-                        <option value="Smoke WP">Smoke WP</option>
-                        <option value="Illumination Flare">Illumination Flare</option>
-                        <option value="Practice Inert">Practice Inert</option>
+                      <label className="block text-neutral-500 mb-1">Round Type</label>
+                      <select value={sessionMeta.artilleryRoundType} onChange={e => setSessionMeta({...sessionMeta, artilleryRoundType: e.target.value})} className="w-full bg-black border border-neutral-800 p-2 rounded text-white">
+                        <option value="HE">HE (High Explosive)</option>
+                        <option value="AP">AP (Armor Piercing)</option>
+                        <option value="Smoke">Smoke WP</option>
+                        <option value="Illumination">Illumination Flare</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Charge Name / Zone</label>
-                      <input type="text" value={sessionMeta.artilleryChargeName} onChange={e => setSessionMeta({...sessionMeta, artilleryChargeName: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm" />
+                      <label className="block text-neutral-500 mb-1">Charge Name</label>
+                      <input type="text" value={sessionMeta.artilleryChargeName} onChange={e => setSessionMeta({...sessionMeta, artilleryChargeName: e.target.value})} className="w-full bg-black border border-neutral-800 p-2 rounded text-white" />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Number of Charge Increments</label>
-                      <input type="number" min="1" max="10" value={sessionMeta.artilleryNumCharges} onChange={e => setSessionMeta({...sessionMeta, artilleryNumCharges: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-sm" />
+                      <label className="block text-neutral-500 mb-1">Num Charges</label>
+                      <input type="number" min="1" value={sessionMeta.artilleryNumCharges} onChange={e => setSessionMeta({...sessionMeta, artilleryNumCharges: e.target.value})} className="w-full bg-black border border-neutral-800 p-2 rounded text-white" />
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Type</label>
-                  <input type="text" value={sessionMeta.targetType} onChange={e => setSessionMeta({...sessionMeta, targetType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Target Type</label>
+                  <input type="text" value={sessionMeta.targetType} onChange={e => setSessionMeta({...sessionMeta, targetType: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Width (cm)</label>
-                  <input type="number" value={sessionMeta.targetWidthCm} onChange={e => setSessionMeta({...sessionMeta, targetWidthCm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Width (cm)</label>
+                  <input type="number" value={sessionMeta.targetWidthCm} onChange={e => setSessionMeta({...sessionMeta, targetWidthCm: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Target Height (cm)</label>
-                  <input type="number" value={sessionMeta.targetHeightCm} onChange={e => setSessionMeta({...sessionMeta, targetHeightCm: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Height (cm)</label>
+                  <input type="number" value={sessionMeta.targetHeightCm} onChange={e => setSessionMeta({...sessionMeta, targetHeightCm: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Distance (Meters)</label>
-                  <input type="number" value={sessionMeta.distanceMeters} onChange={e => setSessionMeta({...sessionMeta, distanceMeters: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-white text-sm" />
+                  <label className="block text-neutral-400 mb-1">Distance (m)</label>
+                  <input type="number" value={sessionMeta.distanceMeters} onChange={e => setSessionMeta({...sessionMeta, distanceMeters: e.target.value})} className="w-full bg-black border border-neutral-800 p-2.5 rounded text-white" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-2">
-                <label className="flex items-center gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 cursor-pointer">
-                  <input type="checkbox" checked={sessionMeta.isNight} onChange={e => setSessionMeta({...sessionMeta, isNight: e.target.checked})} className="w-4 h-4 accent-amber-500" />
-                  <div>
-                    <div className="font-bold text-sm text-white">Night / Low-Light Firing</div>
-                    <div className="text-xs text-slate-400">Enables thermal/night telemetry compensation</div>
-                  </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <label className="flex items-center gap-2 bg-black p-3 rounded border border-neutral-800 cursor-pointer">
+                  <input type="checkbox" checked={sessionMeta.isNight} onChange={e => setSessionMeta({...sessionMeta, isNight: e.target.checked})} className="accent-emerald-500" />
+                  <span>Night Firing</span>
                 </label>
-                <label className="flex items-center gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 cursor-pointer">
-                  <input type="checkbox" checked={sessionMeta.isMoving} onChange={e => setSessionMeta({...sessionMeta, isMoving: e.target.checked})} className="w-4 h-4 accent-amber-500" />
-                  <div>
-                    <div className="font-bold text-sm text-white">Moving Target Dynamics</div>
-                    <div className="text-xs text-slate-400">Track dynamic lead and velocity vectors</div>
-                  </div>
+                <label className="flex items-center gap-2 bg-black p-3 rounded border border-neutral-800 cursor-pointer">
+                  <input type="checkbox" checked={sessionMeta.isMoving} onChange={e => setSessionMeta({...sessionMeta, isMoving: e.target.checked})} className="accent-emerald-500" />
+                  <span>Moving Target</span>
                 </label>
               </div>
 
               {sessionMeta.isMoving && (
-                <div className="grid grid-cols-3 gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <div className="grid grid-cols-3 gap-2 bg-black p-3 rounded border border-neutral-800">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Starting Distance (m)</label>
-                    <input type="number" value={sessionMeta.startDist} onChange={e => setSessionMeta({...sessionMeta, startDist: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
+                    <label className="block text-neutral-500 mb-1">Start Dist (m)</label>
+                    <input type="number" value={sessionMeta.startDist} onChange={e => setSessionMeta({...sessionMeta, startDist: e.target.value})} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-white" />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Firing Impact Distance (m)</label>
-                    <input type="number" value={sessionMeta.fireDist} onChange={e => setSessionMeta({...sessionMeta, fireDist: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
+                    <label className="block text-neutral-500 mb-1">Fire Dist (m)</label>
+                    <input type="number" value={sessionMeta.fireDist} onChange={e => setSessionMeta({...sessionMeta, fireDist: e.target.value})} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-white" />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Target Speed (km/h)</label>
-                    <input type="number" value={sessionMeta.targetSpeed} onChange={e => setSessionMeta({...sessionMeta, targetSpeed: e.target.value})} className="w-full bg-slate-900 border border-slate-800 p-2.5 rounded-lg text-white text-sm" />
+                    <label className="block text-neutral-500 mb-1">Speed (km/h)</label>
+                    <input type="number" value={sessionMeta.targetSpeed} onChange={e => setSessionMeta({...sessionMeta, targetSpeed: e.target.value})} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-white" />
                   </div>
                 </div>
               )}
@@ -727,65 +641,72 @@ Generated securely by APEX Ballistics Telemetry Engine.
                 onClick={() => {
                   setCurrentRoundNumber(1);
                   setShotHits({});
-                  setRoundImages({});
                   setCurrentView('firing');
                 }}
-                className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-4 rounded-xl flex items-center justify-center gap-2 text-lg shadow-lg transition mt-4"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-3 rounded-lg flex items-center justify-center gap-2 text-xs transition mt-2"
               >
-                Proceed to Firing & Target Analysis <ChevronRight className="w-5 h-5" />
+                Proceed to Firing & Analysis <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
 
-        {/* --- VIEW: INTERACTIVE FIRING & RETICLE PLACEMENT CANVAS --- */}
         {currentView === 'firing' && (
-          <div className="max-w-5xl mx-auto space-y-6">
-            <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-xl">
+          <div className="max-w-3xl mx-auto space-y-4">
+            <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800 p-3 rounded-xl text-xs">
               <div>
-                <h2 className="text-xl font-bold text-white">Round #{currentRoundNumber} Firing Phase</h2>
-                <p className="text-xs text-slate-400">{sessionMeta.gunName} | Caliber: {sessionMeta.caliber} | Target: {sessionMeta.targetType}</p>
+                <h2 className="font-bold text-white">Round #{currentRoundNumber} Firing Phase</h2>
+                <p className="text-neutral-400">{sessionMeta.gunName} | Caliber: {sessionMeta.caliber}</p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs bg-amber-500/20 text-amber-400 px-3 py-1 rounded-lg">
-                  {shotHits[currentRoundNumber]?.length || 0} / {sessionMeta.declaredRounds} Shots Marked
-                </span>
-                <button onClick={() => setCurrentView('setup')} className="text-xs text-slate-400 hover:text-white">
-                  Edit Metadata
-                </button>
-              </div>
+              <button onClick={() => setCurrentView('setup')} className="text-neutral-400 hover:text-white">Edit Setup</button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              {/* Left sidebar tools */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 lg:col-span-1">
-                <h3 className="font-bold text-white text-sm">Target Controls</h3>
-                
-                <div className="space-y-2">
-                  <label className="block text-xs text-slate-400">Upload Target Image</label>
-                  <label className="cursor-pointer block bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold p-3 rounded-xl border border-slate-700 text-center text-xs transition">
-                    <span>📁 Upload Target Photo</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                  </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 flex flex-col items-center justify-center text-center space-y-3">
+                <Target className="w-12 h-12 text-emerald-500 opacity-80" />
+                <div>
+                  <h3 className="font-bold text-white text-sm">Upload Target Photo</h3>
+                  <p className="text-xs text-neutral-400">Upload post-firing image for Round #{currentRoundNumber}.</p>
+                </div>
+                <label className="cursor-pointer bg-neutral-800 hover:bg-neutral-700 text-emerald-400 font-bold px-4 py-2.5 rounded-lg border border-neutral-700 text-xs transition">
+                  <span>Select Target File</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={() => simulateShotDetection(currentRoundNumber)} />
+                </label>
+                <button onClick={() => simulateShotDetection(currentRoundNumber)} className="text-[10px] text-neutral-400 hover:text-emerald-400 underline">
+                  [Simulate Auto-Detection]
+                </button>
+              </div>
+
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 space-y-3 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-white">Target Hit Detection</span>
+                  <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-[10px]">
+                    {shotHits[currentRoundNumber]?.length || 0} / {sessionMeta.declaredRounds} Hits
+                  </span>
                 </div>
 
-                <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <label className="block text-xs text-slate-400">Zoom Canvas</label>
-                  <div className="flex gap-2">
-                    <button onClick={() => setZoomLevel(prev => Math.max(0.5, prev - 0.25))} className="flex-1 bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                      <ZoomOut className="w-3.5 h-3.5" /> Out
-                    </button>
-                    <button onClick={() => setZoomLevel(prev => Math.min(2, prev + 0.25))} className="flex-1 bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                      <ZoomIn className="w-3.5 h-3.5" /> In
-                    </button>
+                <div className="relative w-full h-56 bg-black border border-neutral-800 rounded-lg flex items-center justify-center overflow-hidden">
+                  <div className="absolute w-40 h-40 rounded-full border border-neutral-800 flex items-center justify-center">
+                    <div className="absolute w-24 h-24 rounded-full border border-emerald-500/30 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2 pt-2 border-t border-slate-800 text-xs text-slate-400">
-                  <p className="font-bold text-white">Instructions:</p>
-                  <p>1. Upload your target photo.</p>
-                  <p>2. Click anywhere on the target to place a shot marker.</p>
-                  <p>3. Drag and drop any numbered marker to adjust its exact hit position.</p>
+                  {(shotHits[currentRoundNumber] || []).map(shot => (
+                    <div 
+                      key={shot.id} 
+                      className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500 border border-black flex items-center justify-center text-[9px] font-bold text-black shadow"
+                      style={{ left: `${shot.x}px`, top: `${shot.y}px` }}
+                    >
+                      {shot.id}
+                    </div>
+                  ))}
+
+                  {(!shotHits[currentRoundNumber] || shotHits[currentRoundNumber].length === 0) && (
+                    <div className="text-[10px] text-neutral-500 z-10">Upload photo to view hits</div>
+                  )}
                 </div>
 
                 <button 
@@ -797,128 +718,62 @@ Generated securely by APEX Ballistics Telemetry Engine.
                       calculateBallistics();
                     }
                   }}
-                  className="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold py-3 rounded-xl text-xs transition shadow-lg mt-4"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2.5 rounded-lg text-xs transition"
                 >
-                  Confirm Round & Continue
+                  Confirm Round & Continue / Finish
                 </button>
-              </div>
-
-              {/* Main Interactive Canvas Area */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 lg:col-span-3 flex flex-col items-center justify-center overflow-hidden">
-                <div 
-                  ref={canvasRef}
-                  onMouseMove={handleCanvasMouseMove}
-                  onMouseUp={handleCanvasMouseUp}
-                  onClick={handleCanvasClick}
-                  className="relative w-[600px] h-[450px] bg-slate-950 border border-slate-800 rounded-xl cursor-crosshair overflow-hidden flex items-center justify-center shadow-inner"
-                  style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center' }}
-                >
-                  {/* Background Target Image or Default Target Rings */}
-                  {roundImages[currentRoundNumber] ? (
-                    <img src={roundImages[currentRoundNumber]} alt="Target" className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-85" />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-96 h-96 rounded-full border-2 border-slate-800 flex items-center justify-center">
-                        <div className="w-72 h-72 rounded-full border border-slate-800 flex items-center justify-center">
-                          <div className="w-48 h-48 rounded-full border border-amber-500/30 flex items-center justify-center">
-                            <div className="w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500 flex items-center justify-center">
-                              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Interactive Draggable Shot Markers */}
-                  {(shotHits[currentRoundNumber] || []).map(shot => (
-                    <div 
-                      key={shot.id}
-                      onMouseDown={(e) => handleDragShot(e, shot.id)}
-                      className="absolute w-7 h-7 -ml-3.5 -mt-3.5 rounded-full bg-amber-500 border-2 border-slate-950 flex items-center justify-center text-xs font-bold text-slate-950 shadow-xl cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
-                      style={{ left: `${shot.x}px`, top: `${shot.y}px` }}
-                      title={`Shot #${shot.id} (Drag to move)`}
-                    >
-                      {shot.id}
-                    </div>
-                  ))}
-
-                  {(!shotHits[currentRoundNumber] || shotHits[currentRoundNumber].length === 0) && (
-                    <div className="absolute bottom-4 bg-slate-900/90 text-slate-300 px-4 py-2 rounded-lg text-xs border border-slate-700 pointer-events-none">
-                      Click anywhere on target to mark bullet impact points
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </div>
         )}
 
         {currentView === 'report' && analysisResult && (
-          <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+          <div className="max-w-2xl mx-auto bg-neutral-900 border border-neutral-800 rounded-xl p-6 space-y-4 text-xs">
+            <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
               <div>
-                <h2 className="text-2xl font-bold text-white">Tactical Firing Summary Report</h2>
-                <p className="text-xs text-slate-400">Session ID: #{analysisResult.id} | Generated {analysisResult.timestamp}</p>
+                <h2 className="font-bold text-white text-sm">Tactical Firing Summary Report</h2>
+                <p className="text-neutral-400">Generated {analysisResult.timestamp}</p>
               </div>
               <button 
                 onClick={() => downloadReport(analysisResult)}
-                className="bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 text-sm shadow-lg transition"
+                className="bg-emerald-600 hover:bg-emerald-500 text-black font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition"
               >
-                <Download className="w-4 h-4" /> Download Report On-Spot
+                <Download className="w-3.5 h-3.5" /> Download Report On-Spot
               </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <div className="text-xs text-slate-400 mb-1">Extreme Spread (ES)</div>
-                <div className="text-xl font-bold text-amber-400">{analysisResult.extremeSpread}</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-black p-3 rounded-lg border border-neutral-800">
+                <div className="text-neutral-400 mb-0.5">Extreme Spread</div>
+                <div className="text-sm font-bold text-emerald-400">{analysisResult.extremeSpread}</div>
               </div>
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <div className="text-xs text-slate-400 mb-1">Mean Radius (MR)</div>
-                <div className="text-xl font-bold text-white">{analysisResult.meanRadius}</div>
+              <div className="bg-black p-3 rounded-lg border border-neutral-800">
+                <div className="text-neutral-400 mb-0.5">Mean Radius</div>
+                <div className="text-sm font-bold text-white">{analysisResult.meanRadius}</div>
               </div>
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <div className="text-xs text-slate-400 mb-1">POI Shift Offset</div>
-                <div className="text-sm font-bold text-white mt-1">{analysisResult.poiOffset}</div>
+              <div className="bg-black p-3 rounded-lg border border-neutral-800">
+                <div className="text-neutral-400 mb-0.5">POI Offset</div>
+                <div className="text-xs font-bold text-white mt-1">{analysisResult.poiOffset}</div>
               </div>
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <div className="text-xs text-slate-400 mb-1">Total Hits</div>
-                <div className="text-xl font-bold text-white">{analysisResult.totalRoundsFired} Rounds</div>
+              <div className="bg-black p-3 rounded-lg border border-neutral-800">
+                <div className="text-neutral-400 mb-0.5">Total Hits</div>
+                <div className="text-sm font-bold text-white">{analysisResult.totalRoundsFired} Rounds</div>
               </div>
             </div>
 
-            <div className="bg-amber-950/20 border border-amber-500/30 p-5 rounded-xl space-y-2">
-              <h4 className="font-bold text-amber-400 text-sm flex items-center gap-2">
-                <Award className="w-4 h-4" /> Recommended Optic / Sight Corrections
+            <div className="bg-neutral-950 border border-emerald-500/30 p-3.5 rounded-lg space-y-1">
+              <h4 className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5" /> Recommended Optic Corrections
               </h4>
-              <div className="text-white font-mono text-lg">{analysisResult.sightAdjustment}</div>
+              <div className="text-white font-mono text-sm">{analysisResult.sightAdjustment}</div>
             </div>
 
-            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-2 text-sm">
-              <h4 className="font-bold text-slate-300 text-xs uppercase tracking-wider">Session Parameters</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-slate-400">
-                <div>System: <span className="text-white">{analysisResult.meta.gunName}</span></div>
-                <div>Caliber: <span className="text-white">{analysisResult.meta.caliber}</span></div>
-                <div>Ammo: <span className="text-white">{analysisResult.meta.ammoType}</span></div>
-                <div>Muzzle Vel: <span className="text-white">{analysisResult.meta.muzzleVelocity}</span></div>
-                <div>Distance: <span className="text-white">{analysisResult.meta.distanceMeters}m</span></div>
-                <div>Supervisor: <span className="text-white">{analysisResult.meta.supervisor}</span></div>
-                {analysisResult.meta.isArtillery && (
-                  <>
-                    <div>Ordnance Type: <span className="text-amber-400">{analysisResult.meta.artilleryRoundType}</span></div>
-                    <div>Charge Zone: <span className="text-amber-400">{analysisResult.meta.artilleryChargeName}</span></div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-between pt-4">
-              <button onClick={() => setCurrentView('dashboard')} className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-6 py-3 rounded-xl text-sm font-bold transition">
-                Return to Dashboard
+            <div className="flex justify-between pt-2">
+              <button onClick={() => setCurrentView('dashboard')} className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-4 py-2 rounded font-bold transition">
+                Dashboard
               </button>
-              <button onClick={() => setCurrentView('setup')} className="bg-amber-600 hover:bg-amber-500 text-slate-950 px-6 py-3 rounded-xl text-sm font-bold transition flex items-center gap-2">
-                <RefreshCw className="w-4 h-4" /> Start New Test Session
+              <button onClick={() => setCurrentView('setup')} className="bg-emerald-600 hover:bg-emerald-500 text-black px-4 py-2 rounded font-bold transition flex items-center gap-1">
+                <RefreshCw className="w-3.5 h-3.5" /> New Test
               </button>
             </div>
           </div>
